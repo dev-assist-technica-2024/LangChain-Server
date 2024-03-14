@@ -6,6 +6,10 @@ import logging
 from bson import ObjectId
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel
+import boto3
+import json
+import asyncio
+from openai import OpenAI
 
 from controller.debugger import Debugger
 
@@ -20,16 +24,48 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
+queue_url = os.getenv("SQS_QUEUE_URL")
+mongodb_url = os.getenv("MONGODB_URL")
+aws_access_key_id = os.getenv("AWS_ACCESS_KEY_ID")
+aws_secret_access_key = os.getenv("AWS_SECRET_ACCESS_KEY")
+aws_default_region = os.getenv("AWS_DEFAULT_REGION")
 
 class DBConnection:
     client: AsyncIOMotorClient = None
 
 
+async def poll_sqs_messages():
+    sqs = boto3.client('sqs',
+            aws_access_key_id=aws_access_key_id,
+            aws_secret_access_key=aws_secret_access_key,
+            region_name=aws_default_region)
+
+    while True:
+        try:
+            response = sqs.receive_message(
+                QueueUrl=queue_url,
+                AttributeNames=['All'],
+                MaxNumberOfMessages=10,
+                WaitTimeSeconds=20  
+            )
+
+            if 'Messages' in response:
+                for message in response['Messages']:
+                    print("Message received:", message['Body'])
+                    sqs.delete_message(
+                        QueueUrl=queue_url,
+                        ReceiptHandle=message['ReceiptHandle']
+                    )
+        except Exception as e:
+            logger.error(f"Error polling SQS: {e}")
+
+        await asyncio.sleep(1) 
+
 @app.on_event("startup")
 async def startup_db_client():
-    mongodb_url = os.getenv("MONGODB_URL", "mongodb://localhost:27017/")
     DBConnection.client = AsyncIOMotorClient(mongodb_url)
     logger.info("MongoDB connected")
+    asyncio.create_task(poll_sqs_messages())
 
 
 @app.on_event("shutdown")
@@ -48,32 +84,33 @@ def custom_jsonable_encoder(obj, **kwargs):
                 for key, value in obj.items()}
     return jsonable_encoder(obj, **kwargs)
 
+def send_to_sqs(queue_name, collection_name, task):
+    try:
+        sqs = boto3.client(
+            'sqs',  
+            aws_access_key_id=aws_access_key_id,
+            aws_secret_access_key=aws_secret_access_key,
+            region_name=aws_default_region
+        )
 
-def send_to_sqs(data, queue_name, collection_name):
-    import boto3
-    import json
+        message_body = json.dumps({
+            "project_name": collection_name,
+            "task": task
+        })
 
-    # Create SQS client
-    sqs = boto3.client('sqs')
-
-    queue_url = os.getenv("SQS_QUEUE_URL")
-
-    response = sqs.send_message(
-        QueueUrl=queue_url,
-        MessageBody=json.dumps(data),
-        MessageAttributes={
-            'QueueName': {
-                'DataType': 'String',
-                'StringValue': queue_name
-            },
-            'CollectionName': {
-                'DataType': 'String',
-                'StringValue': collection_name
-            },
-
-        }
-    )
-
+        response = sqs.send_message(
+            QueueUrl=queue_url,
+            MessageBody=message_body,
+            MessageAttributes={
+                'QueueName': {
+                    'DataType': 'String',
+                    'StringValue': queue_name
+                },
+            }
+        )
+        logger.info(f"Message sent to SQS. Message ID: {response['MessageId']}")
+    except Exception as e:
+        logger.error(f"Failed to send message to SQS: {str(e)}")
 
 # pass collection name (project name)
 # sample body {
@@ -140,16 +177,18 @@ async def fetch_documents_from_code(collection_name: str):
         raise HTTPException(status_code=404, detail="Documents not found")
 
     encodable_docs = custom_jsonable_encoder(documents)
+    
+@app.post("/documentation/{collection_name}")
+async def fetch_documents_from_code(collection_name: str):
 
     # send it to AWS SQS
-    await send_to_sqs(encodable_docs, "documentation", collection_name)
+    send_to_sqs("documentation", collection_name, "fetch_documentation")
 
-    # save with empty documentations
     db = DBConnection.client['langchain_db']['documentation']
     query = {"project_name": collection_name, "documentations": []}
 
-    # save the query to the database
-    query_id = await db.insert_one(query)
+    await db.insert_one(query)
+
 
     response = {"message": "your document is being processed and will be available soon"}
 
@@ -165,6 +204,18 @@ async def fetch_projects():
     projects = {"projects": projects}
     return projects
 
+@app.get("/steps-to-deploy/{collection_name}")
+async def fetch_steps_to_deploy(collection_name: str):
+    db = DBConnection.client['langchain_db']['deployment']
+    
+    cursor = db[collection_name].find()  
+    documents = await cursor.to_list(length=100) 
+    
+    if not documents:
+        raise HTTPException(status_code=404, detail="Documents not found")
+    
+    encodable_docs = custom_jsonable_encoder(documents)
+    return encodable_docs
 
 if __name__ == "__main__":
     import uvicorn

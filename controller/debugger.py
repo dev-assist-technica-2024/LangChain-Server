@@ -12,6 +12,7 @@ from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_community.utilities import StackExchangeAPIWrapper
 from langchain_core.tools import Tool
 
+mongodb_url = os.getenv("MONGODB_URL")
 
 class Debugger:
     llm = ChatOpenAI(openai_api_key=os.getenv("OPENAI_API_KEY"),
@@ -37,14 +38,13 @@ class Debugger:
 
     def __init__(self, collection_name, query, code):
         self.collection_name = collection_name
-        self.project_id = collection_name
         self.query = query
         self.code = code
 
     def invoke(self) -> None:
         message_history = MongoDBChatMessageHistory(
-            session_id=self.project_id,
-            connection_string="mongodb+srv://souvikmukherjee150:aWaoFeCOnKgGbjjE@cluster0.0dk4u2q.mongodb.net",
+            session_id=self.collection_name,
+            connection_string=mongodb_url,
             database_name="langchain_db",
             collection_name=self.collection_name,
         )
@@ -56,29 +56,5 @@ class Debugger:
         )
         agent_with_chat_history.invoke(
             {"input": f"{self.query}: \n {self.code}"},
-            config={"configurable": {"session_id": f'{self.project_id}'}},
+            config={"configurable": {"session_id": f'{self.collection_name}'}},
         )
-
-    # code_snippet = '''
-    #             from langchain.llms import OpenAI
-    #             from langchain.vectorstores import FAISS
-    #             from langchain.document_loaders import DirectoryLoader
-    #             from langchain.chains.question_answering import VectorDBQA
-    #
-    #             # Load your documents
-    #             loader = DirectoryLoader("./data/")
-    #             documents = loader.load()
-    #
-    #             # Create a vectorstore
-    #             vectorstore = FAISS.from_documents(documents, OpenAI(temperature=0))
-    #
-    #             # Create the QA chain
-    #             qa = VectorDBQA.from_llm_and_vectorstore(OpenAI(temperature=0), vectorstore)
-    #
-    #             # Ask a question
-    #             query = "What is the capital of France?"
-    #             result = qa.run(query)
-    #             print(result)
-    # '''
-    # error_message = "Error: AttributeError: 'FAISS' object has no attribute 'from_documents'"
-
