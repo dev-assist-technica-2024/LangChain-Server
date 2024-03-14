@@ -35,9 +35,9 @@ class Debugger:
     agent = create_openai_tools_agent(llm, tools, prompt)
     agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
 
-    def __init__(self, collection_name, project_id, query, code):
+    def __init__(self, collection_name, query, code):
         self.collection_name = collection_name
-        self.project_id = project_id
+        self.project_id = collection_name
         self.query = query
         self.code = code
 

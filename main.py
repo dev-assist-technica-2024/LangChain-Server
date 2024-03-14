@@ -101,9 +101,9 @@ async def fetch_documents_from_code_async(collection_name: str, query_item: Quer
 
     encodable_docs = custom_jsonable_encoder(documents)
 
-    debugger = Debugger(collection_name, project_id, query, encodable_docs)
+    debugger = Debugger(collection_name, query, encodable_docs)
     debugger.invoke()
-    
+
     return encodable_docs
 
 
