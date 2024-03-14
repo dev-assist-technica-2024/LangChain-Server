@@ -7,6 +7,8 @@ from bson import ObjectId
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel
 
+from controller.debugger import Debugger
+
 
 class QueryItem(BaseModel):
     question: str
@@ -78,7 +80,6 @@ def send_to_sqs(data, queue_name, collection_name):
 #    "question": "What is the current use of artificial intelligence in software development?"
 # }
 
-@app.post("/debugger/generate_completions")
 
 @app.post("/debugger/{collection_name}")
 async def fetch_documents_from_code_async(collection_name: str, query_item: QueryItem = Body(...)):
@@ -99,6 +100,10 @@ async def fetch_documents_from_code_async(collection_name: str, query_item: Quer
     print(query_id.inserted_id)
 
     encodable_docs = custom_jsonable_encoder(documents)
+
+    debugger = Debugger(collection_name, project_id, query, encodable_docs)
+    debugger.invoke()
+    
     return encodable_docs
 
 
