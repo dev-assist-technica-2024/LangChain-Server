@@ -12,6 +12,7 @@ import asyncio
 from openai import OpenAI
 
 from controller.debugger import Debugger
+from controller.docs import Docs
 
 
 class QueryItem(BaseModel):
@@ -19,9 +20,6 @@ class QueryItem(BaseModel):
 
 
 load_dotenv()
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
 app = FastAPI()
 
 queue_url = os.getenv("SQS_QUEUE_URL")
@@ -52,6 +50,13 @@ async def poll_sqs_messages():
             if 'Messages' in response:
                 for message in response['Messages']:
                     print("Message received:", message['Body'])
+
+                    message_body = json.loads(message['Body'])
+                    project_name = message_body.get("project_name", "")
+
+                    print(project_name)
+                    await Docs.call_assistant_with_markdown(project_name)
+
                     sqs.delete_message(
                         QueueUrl=queue_url,
                         ReceiptHandle=message['ReceiptHandle']
@@ -138,6 +143,7 @@ async def fetch_documents_from_code_async(collection_name: str, query_item: Quer
 
     encodable_docs = custom_jsonable_encoder(documents)
 
+    print("[]")
     debugger = Debugger(collection_name, query, encodable_docs)
     debugger.invoke()
 
@@ -165,18 +171,6 @@ async def fetch_documents_from_code_async(collection_name: str, query_item: Quer
     encodable_docs = custom_jsonable_encoder(documents)
     return encodable_docs
 
-
-@app.get("/documentation/{collection_name}")
-async def fetch_documents_from_code(collection_name: str):
-    db = DBConnection.client['code_sync']
-
-    cursor = db[collection_name].find()
-    documents = await cursor.to_list(length=100)
-
-    if not documents:
-        raise HTTPException(status_code=404, detail="Documents not found")
-
-    encodable_docs = custom_jsonable_encoder(documents)
     
 @app.post("/documentation/{collection_name}")
 async def fetch_documents_from_code(collection_name: str):

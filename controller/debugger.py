@@ -5,6 +5,7 @@ from langchain_openai import ChatOpenAI
 from langchain import hub
 from langchain.agents import create_openai_tools_agent
 from langchain.agents import AgentExecutor
+from dotenv import load_dotenv
 from langchain_mongodb.chat_message_histories import MongoDBChatMessageHistory
 from langchain_core.runnables.history import RunnableWithMessageHistory
 
@@ -12,10 +13,13 @@ from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_community.utilities import StackExchangeAPIWrapper
 from langchain_core.tools import Tool
 
+load_dotenv()
+
 mongodb_url = os.getenv("MONGODB_URL")
+openai_api_key = os.getenv("OPENAI_API_KEY")
 
 class Debugger:
-    llm = ChatOpenAI(openai_api_key=os.getenv("OPENAI_API_KEY"),
+    llm = ChatOpenAI(openai_api_key=openai_api_key,
                      model="gpt-3.5-turbo-0125",
                      temperature=0)
     # search = GoogleSearchAPIWrapper()
