@@ -69,7 +69,7 @@ async def generate_optimizer_completions(documents, threadID, query):
         '''
 
     for document in documents:
-        prompt = prompt + codePrompt % document.name, document.content
+        prompt = prompt + codePrompt % (document['name'], document['content'])
 
     prompt + userQuery % query
 
