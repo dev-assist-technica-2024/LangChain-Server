@@ -4,7 +4,7 @@ This is the server for the DevAssist Project by team HighOn420. It is a RESTful 
 
 API documentation for the Langchain server:- 
 
-[![Postman](https://run.pstmn.io/button.svg)](https://documenter.getpostman.com/view/19816367/2sA2xnw94A)
+[<img src="https://run.pstmn.io/button.svg" alt="Run In Postman" style="width: 128px; height: 32px;">](https://god.gw.postman.com/run-collection/33649839-4ca2c43c-1776-4612-b4e9-0d3f9a1c286c?action=collection%2Ffork&source=rip_markdown&collection-url=entityId%3D33649839-4ca2c43c-1776-4612-b4e9-0d3f9a1c286c%26entityType%3Dcollection%26workspaceId%3D48af9bc0-5292-4799-8ba2-9db11d57ed3c)
 
 ## Getting Started
 
