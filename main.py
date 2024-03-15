@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Body
+from fastapi import FastAPI, HTTPException, Body,  File, UploadFile, Form
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 from dotenv import load_dotenv
 import os
@@ -9,12 +9,14 @@ from pydantic import BaseModel
 import boto3
 import json
 import asyncio
-# from openai import OpenAI
-
+import shutil
+from openai import OpenAI
+import uvicorn
 from controller.debugger import initialize_thread_debugger, generate_debugger_completions
 from controller.optimizer import initialize_thread_optimizer, generate_optimizer_completions
 from controller.security import Security
 from fastapi.middleware.cors import CORSMiddleware
+from controller.docs import Documentation
 
 class QueryItem(BaseModel):
     question: str
@@ -22,6 +24,7 @@ class QueryItem(BaseModel):
 
 load_dotenv()
 app = FastAPI()
+openai_client = OpenAI()
 
 app.add_middleware(
     CORSMiddleware,
@@ -70,6 +73,11 @@ async def poll_sqs_messages():
 
                     if message_body.get("task") == "fetch_documentation":
                         print("Fetching documentation...")
+                        await Documentation.get_tree_sitter(project_name)
+                        sqs.delete_message(
+                            QueueUrl=queue_url,
+                            ReceiptHandle=message['ReceiptHandle']
+                        )
 
                     elif message_body.get("task") == "fetch_steps_to_deploy":
                         print("Fetching steps to deploy...")
@@ -284,7 +292,7 @@ async def fetch_documents_from_code_async(collection_name: str, threadID: str, q
 
 
 @app.post("/security/{collection_name}")
-async def fetch_documentation(collection_name: str):
+async def fetch_security(collection_name: str):
     querydb = DBConnection.client['langchain_db']['security_query']
     # save the query to the database
     query = {
@@ -320,37 +328,34 @@ async def fetch_security(collection_name: str):
 
 @app.post("/documentation/{collection_name}")
 async def fetch_documents_from_code(collection_name: str):
-    # send it to AWS SQS
-    send_to_sqs("documentation", collection_name, "fetch_documentation")
-
-    db = DBConnection.client['langchain_db']['documentation']
-    query = {"project_name": collection_name, "documentations": []}
-
-    # if collection_name is in skip else create a new document
-    doc = await db.find_one({"project_name": collection_name})
+    querydb = DBConnection.client['langchain_db']['documentation_query']
+    # save the query to the database
+    query = {
+        "project_name": collection_name,
+        "status": "pending",
+        "result": None,
+    }
+    
+    doc = await querydb.find_one({"project_name": collection_name})
     if not doc:
         print("Document does not exist")
-        await db.insert_one(query)
+        await querydb.insert_one(query)
     else:
-        # update the document status to pending
-        doc = await db.find_one_and_update(
-            {"project_name": collection_name},
-            {"$set": {"status": "pending"}}
-        )
         print("Document already exists")
 
-    response = {"message": "your document is being processed and will be available soon"}
+    send_to_sqs("fetch_documentation", collection_name, "fetch_documentation")
 
-    return response
+    return {"message": "Security check is being processed and will be available soon"}
 
 @app.get("/documentation/{collection_name}")
 async def fetch_documentation(collection_name: str):
-    db = DBConnection.client['langchain_db']['documentation']
+    db = DBConnection.client['langchain_db']['documentation_query']
 
     doc = await db.find_one({"project_name": collection_name})
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
 
+    doc = custom_jsonable_encoder(doc)
     return doc
 
 @app.get("/projects")
@@ -376,8 +381,26 @@ async def fetch_steps_to_deploy(collection_name: str):
     encodable_docs = custom_jsonable_encoder(documents)
     return encodable_docs
 
+@app.get("/voice-assistant")
+async def transcribe_audio(file: UploadFile = File(...)):
+    # Save the uploaded file temporarily
+    with open(f"temp_{file.filename}", "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    # Open the saved file for reading
+    with open(f"temp_{file.filename}", "rb") as audio_file:
+        transcription = openai_client.audio.transcriptions.create(
+            model="whisper-1",
+            file=audio_file,
+            response_format="text"
+        )
+        
+    # Clean up the temporary file
+    os.remove(f"temp_{file.filename}")
+
+    # Return the transcription text
+    return {"transcription": transcription.text}
 
 if __name__ == "__main__":
-    import uvicorn
 
     uvicorn.run(app, host="127.0.0.1", port=8000)

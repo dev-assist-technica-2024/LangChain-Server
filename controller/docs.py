@@ -1,37 +1,11 @@
 from openai import OpenAI
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
-import time
 import logging
-import pprint
 from DocumentationGenerator import DocumentationGenerator
 import google.generativeai as genai
 
-generator = DocumentationGenerator(fileName, fileContents)
-query_output = generator.query(
-    """
-(function_definition) @function
-(class_definition) @class
-"""
-)
 
-"""
-
-fileName = "DocumentationGenerator.py"
-fileContents = open("DocumentationGenerator.py", "r").read()
-
-
-
-
-# Set your API key (replace with your actual API key)
-genai.configure(api_key="")
-model = genai.GenerativeModel('gemini-pro')
-for _, func_or_class in query_output:
-    if "function" not in func_or_class: continue
-    response = model.generate_content("generate a formal documentation of this function so I can paste as it is. keep in mind there can be function with __ in their name so properly format the markdown \n" + bytes.decode(func_or_class["function"].text, "utf-8"))
-# Print the generated response
-print(response.text)
-"""
 
 # Set up basic configuration for logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -39,6 +13,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 gemini_api_key = os.getenv("GEMINI_API_KEY")
 openai_api_key = os.getenv("OPENAI_API_KEY")
 openai_assistant_id = os.getenv("OPENAI_SEC_ASSISTANT_ID")
+mongodb_url = os.getenv("MONGODB_URL")
 
 class DBConnection:
     client: AsyncIOMotorClient = None
@@ -46,7 +21,7 @@ class DBConnection:
 import asyncio
 
 class Documentation:
-    async def call_assistant_with_markdown(collection_name):
+    async def get_tree_sitter(collection_name):
         DBConnection.client = AsyncIOMotorClient(mongodb_url)
         client = OpenAI(api_key=openai_api_key)
         db = DBConnection.client['code_sync']
@@ -54,8 +29,8 @@ class Documentation:
 
         result = []
 
-        querydb = DBConnection.client['langchain_db']['security_query']
-        # find the query in the database
+        querydb = DBConnection.client['langchain_db']['documentation_query']
+        
         query = {
             "project_name": collection_name,
         }
@@ -67,53 +42,36 @@ class Documentation:
             print("No thread_id found in the document.")
 
         async for document in cursor:
-            print(document) 
+         
+            fileName = document["name"]
+            fileName = fileName.replace(".ts", ".js")
+            fileContents = document["content"]
 
-            if thread_id is None:
-                # First create an empty thread
-                empty_thread = client.beta.threads.create()
-                thread_id = empty_thread.id
-           
-           # Add message to the thread
-            client.beta.threads.messages.create(
-                thread_id,
-                role="user",
-                content=f"Find security issues for this {document}",
+            generator = DocumentationGenerator(fileName, fileContents)
+            query_output = generator.query(
+            """
+            (function_declaration) @function
+            """
             )
 
-            # Run the thread with your assistant id
-            run = client.beta.threads.runs.create(
-                thread_id=thread_id,
-                assistant_id=openai_assistant_id
-            )
+            genai.configure(api_key=gemini_api_key)
+            model = genai.GenerativeModel('gemini-pro')
+            for _, func_or_class in query_output:
+                if "function" not in func_or_class: continue
+                response = model.generate_content("generate a formal documentation of this function so I can paste as it is. keep in mind there can be function with __ in their name so properly format the markdown \n" + bytes.decode(func_or_class["function"].text, "utf-8"))
+                print(response.text)
+                result.append({
+                    "name": fileName,
+                    "content": fileContents,
+                    "documentation": response.text
+                })
 
-            timeout = 600  # seconds
-            start_time = time.time()
-            
-            while True:
-                await asyncio.sleep(1)  # Use asyncio.sleep for async code
-                run = client.beta.threads.runs.retrieve(thread_id=thread_id, run_id=run.id)
-                if run.status == "completed" or time.time() - start_time > timeout:
-                    break
 
-            # Proceed only if run completed successfully
-            if run.status == "completed":
-                messages_page = client.beta.threads.messages.list(thread_id)
-                messages = messages_page.data
-                if messages:
-                    print(messages[0].content[0].text.value)
-                    result.append(messages[0].content[0].text.value)
-                else:
-                    print("No messages found in the thread.")
-            else:
-                print("The run did not complete successfully.")
 
-        querydb = DBConnection.client['langchain_db']['security_query']
+        querydb = DBConnection.client['langchain_db']['documentation_query']
         # find the query in the database
         query = {
             "project_name": collection_name,
-            "status": "pending",
-            "result": None,
         }
 
         # find the query in the database
