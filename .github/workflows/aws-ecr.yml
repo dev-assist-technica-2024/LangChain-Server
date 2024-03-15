@@ -33,7 +33,6 @@ jobs:
           echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" >> .env
           echo "OPENAI_SEC_ASSISTANT_ID=${{ secrets.OPENAI_SEC_ASSISTANT_ID }}" >> .env
           echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" >> .env
-
       - name: Build, Tag, and Push the Image to Amazon ECR
         id: build-image
         env:
@@ -41,6 +40,5 @@ jobs:
           ECR_REPOSITORY: langchain-server
           IMAGE_TAG: latest
         run: |
-          docker build -t langchain-server .
-          docker tag langchain-server:latest 776465793799.dkr.ecr.us-east-1.amazonaws.com/langchain-server:latest
-          docker push 776465793799.dkr.ecr.us-east-1.amazonaws.com/langchain-server:latest
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
