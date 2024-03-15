@@ -23,20 +23,25 @@ class Docs:
         cursor = db[collection_name].find()
 
         async for document in cursor:
+
+            # First create an empty thread
             empty_thread = client.beta.threads.create() 
             thread_id = empty_thread.id  
            
+           # Add message to the thread
             thread_message = client.beta.threads.messages.create(
             thread_id,
             role="user",
             content=f"Generate docs for this {document}",
             )
 
+            # Run the thread with your assistant id
             run = client.beta.threads.runs.create(
             thread_id=thread_id,
             assistant_id=openai_assistant_id
             )
 
+            # Wait for the run to complete
             while True:
                 time.sleep(1)
                 run = client.beta.threads.runs.retrieve(thread_id=thread_id, run_id=run.id)
