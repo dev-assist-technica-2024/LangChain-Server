@@ -12,7 +12,7 @@ import asyncio
 # from openai import OpenAI
 
 from controller.debugger import Debugger
-from controller.docs import Docs
+from controller.security import Security
 
 
 class QueryItem(BaseModel):
@@ -21,6 +21,8 @@ class QueryItem(BaseModel):
 
 load_dotenv()
 app = FastAPI()
+
+logger = logging.getLogger(__name__)
 
 queue_url = os.getenv("SQS_QUEUE_URL")
 mongodb_url = os.getenv("MONGODB_URL")
@@ -56,12 +58,26 @@ async def poll_sqs_messages():
                     project_name = message_body.get("project_name", "")
 
                     print(project_name)
-                    await Docs.call_assistant_with_markdown(project_name)
 
+                    if message_body.get("task") == "fetch_documentation":
+                        print("Fetching documentation...")
+                        
+                    elif message_body.get("task") == "fetch_steps_to_deploy":
+                        print("Fetching steps to deploy...")
+                        
+                    elif message_body.get("task") == "security":
+                        print("Calling for security issues...")
+                        await Security.call_assistant_with_markdown(project_name)
+                        sqs.delete_message(
+                            QueueUrl=queue_url,
+                            ReceiptHandle=message['ReceiptHandle']
+                        )
+                    
                     sqs.delete_message(
                         QueueUrl=queue_url,
                         ReceiptHandle=message['ReceiptHandle']
                     )
+                    print("Message deleted:", message['Body'])
         except Exception as e:
             logger.error(f"Error polling SQS: {e}")
 
@@ -72,6 +88,28 @@ async def poll_sqs_messages():
 async def startup_db_client():
     DBConnection.client = AsyncIOMotorClient(mongodb_url)
     logger.info("MongoDB connected")
+    # delete the previous messages from the queue
+    # TODO: remove this line in production
+    sqs = boto3.client('sqs',
+            aws_access_key_id=aws_access_key_id,
+            aws_secret_access_key=aws_secret_access_key,
+            region_name=aws_default_region)
+    
+    response = sqs.receive_message(
+        QueueUrl=queue_url,
+        AttributeNames=['All'],
+        MaxNumberOfMessages=10,
+        WaitTimeSeconds=20  
+    )
+
+    if 'Messages' in response:
+        for message in response['Messages']:
+            sqs.delete_message(
+                QueueUrl=queue_url,
+                ReceiptHandle=message['ReceiptHandle']
+            )
+            print("Message deleted:", message['Body'])
+
     asyncio.create_task(poll_sqs_messages())
 
 
@@ -90,6 +128,36 @@ def custom_jsonable_encoder(obj, **kwargs):
         return {key: custom_jsonable_encoder(value, **kwargs)
                 for key, value in obj.items()}
     return jsonable_encoder(obj, **kwargs)
+
+async def vulnerable_code(collection_name: str):
+    db = DBConnection.client['code_sync']
+
+    cursor = db[collection_name].find()
+    documents = await cursor.to_list(length=100)
+
+    if not documents:
+        raise HTTPException(status_code=404, detail="Documents not found")
+
+    querydb = DBConnection.client['langchain_db']['documentation_query']
+    
+    query = {
+        "project_name": collection_name,
+        "status": "pending",
+        "result": None,
+        "thread_id": "",
+    }
+
+    # Save the updated query to the database
+    query_id = await querydb.insert_one(query)
+
+    # Print the query id
+    print(query_id.inserted_id)
+
+    encodable_docs = custom_jsonable_encoder(documents)
+
+    print("[]")
+    
+    return encodable_docs
 
 
 def send_to_sqs(queue_name, collection_name, task):
@@ -116,9 +184,9 @@ def send_to_sqs(queue_name, collection_name, task):
                 },
             }
         )
-        logger.info(f"Message sent to SQS. Message ID: {response['MessageId']}")
+        print(f"Message sent to SQS. Message ID: {response['MessageId']}")
     except Exception as e:
-        logger.error(f"Failed to send message to SQS: {str(e)}")
+        print(f"Failed to send message to SQS: {str(e)}")
 
 
 # pass collection name (project name)
@@ -131,10 +199,11 @@ async def initialize_thread():
     db = DBConnection.client['langchain_db']['debugger_query']
     debugger = Debugger()
     thread_id, assistant_id = debugger.initialize_thread()
+    return {"thread_id": thread_id, "assistant_id": assistant_id}
 
 
-@app.post("/debugger/{collection_name}")
-async def fetch_documents_from_code_async(collection_name: str, query_item: QueryItem = Body(...)):
+@app.post("/debugger/{collection_name}/{threadID}/{assistantID}")
+async def fetch_documents_from_code_async(collection_name: str, threadID: str, assistantID: str, query_item: QueryItem = Body(...)):
     db = DBConnection.client['code_sync']
 
     cursor = db[collection_name].find()
@@ -182,7 +251,21 @@ async def fetch_documents_from_code_async(collection_name: str, query_item: Quer
     encodable_docs = custom_jsonable_encoder(documents)
     return encodable_docs
 
+@app.post("/security/{collection_name}")
+async def fetch_documentation(collection_name: str):
+    querydb = DBConnection.client['langchain_db']['security_query']
+    # save the query to the database
+    query = {
+        "project_name": collection_name,
+        "status": "pending",
+        "result": None,
+    }
+    query_id = await querydb.insert_one(query)
 
+    send_to_sqs("security", collection_name, "security")
+
+    return {"message": "Security check is being processed and will be available soon"}
+    
 @app.post("/documentation/{collection_name}")
 async def fetch_documents_from_code(collection_name: str):
     # send it to AWS SQS
