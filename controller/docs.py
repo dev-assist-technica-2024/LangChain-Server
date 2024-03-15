@@ -5,6 +5,31 @@ import time
 import logging
 import pprint
 
+"""
+from DocumentationGenerator import DocumentationGenerator
+
+fileName = "DocumentationGenerator.py"
+fileContents = open("DocumentationGenerator.py", "r").read()
+
+generator = DocumentationGenerator(fileName, fileContents)
+query_output = generator.query(
+    \"\"\"
+(function_definition) @function
+(class_definition) @class
+\"\"\"
+)
+import google.generativeai as genai
+
+# Set your API key (replace with your actual API key)
+genai.configure(api_key="")
+model = genai.GenerativeModel('gemini-pro')
+for _, func_or_class in query_output:
+    if "function" not in func_or_class: continue
+    response = model.generate_content("generate a formal documentation of this function so I can paste as it is. keep in mind there can be function with __ in their name so properly format the markdown \n" + bytes.decode(func_or_class["function"].text, "utf-8"))
+# Print the generated response
+print(response.text)
+"""
+
 # Set up basic configuration for logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
