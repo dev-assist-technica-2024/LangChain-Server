@@ -197,8 +197,8 @@ def send_to_sqs(queue_name, collection_name, task):
 # }
 
 @app.post("/debugger/{collection_name}/initialize_thread")
-async def initialize_thread():
-    db = DBConnection.client['langchain_db']['debugger_query']
+async def initialize_thread(collection_name: str):
+    # db = DBConnection.client['langchain_db']['debugger_query']
     thread_id = initialize_thread_debugger()
 
     return {"thread_id": thread_id}
@@ -236,7 +236,7 @@ async def fetch_documents_from_code_async(collection_name: str, threadID: str,
     return completion
 
 
-@app.post("/opimizer/{collection_name}/initialize_thread")
+@app.post("/optimizer/{collection_name}/initialize_thread")
 async def initialize_thread():
     db = DBConnection.client['langchain_db']['optimizer_query']
     thread_id = initialize_thread_optimizer()
