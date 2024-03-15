@@ -11,7 +11,8 @@ import json
 import asyncio
 # from openai import OpenAI
 
-from controller.debugger import Debugger
+from controller.debugger import initialize_thread_debugger, generate_debugger_completions
+from controller.optimizer import initialize_thread_optimizer, generate_optimizer_completions
 from controller.security import Security
 
 
@@ -61,10 +62,10 @@ async def poll_sqs_messages():
 
                     if message_body.get("task") == "fetch_documentation":
                         print("Fetching documentation...")
-                        
+
                     elif message_body.get("task") == "fetch_steps_to_deploy":
                         print("Fetching steps to deploy...")
-                        
+
                     elif message_body.get("task") == "security":
                         print("Calling for security issues...")
                         await Security.call_assistant_with_markdown(project_name)
@@ -72,7 +73,7 @@ async def poll_sqs_messages():
                             QueueUrl=queue_url,
                             ReceiptHandle=message['ReceiptHandle']
                         )
-                    
+
                     sqs.delete_message(
                         QueueUrl=queue_url,
                         ReceiptHandle=message['ReceiptHandle']
@@ -91,15 +92,15 @@ async def startup_db_client():
     # delete the previous messages from the queue
     # TODO: remove this line in production
     sqs = boto3.client('sqs',
-            aws_access_key_id=aws_access_key_id,
-            aws_secret_access_key=aws_secret_access_key,
-            region_name=aws_default_region)
-    
+                       aws_access_key_id=aws_access_key_id,
+                       aws_secret_access_key=aws_secret_access_key,
+                       region_name=aws_default_region)
+
     response = sqs.receive_message(
         QueueUrl=queue_url,
         AttributeNames=['All'],
         MaxNumberOfMessages=10,
-        WaitTimeSeconds=20  
+        WaitTimeSeconds=20
     )
 
     if 'Messages' in response:
@@ -129,6 +130,7 @@ def custom_jsonable_encoder(obj, **kwargs):
                 for key, value in obj.items()}
     return jsonable_encoder(obj, **kwargs)
 
+
 async def vulnerable_code(collection_name: str):
     db = DBConnection.client['code_sync']
 
@@ -139,7 +141,7 @@ async def vulnerable_code(collection_name: str):
         raise HTTPException(status_code=404, detail="Documents not found")
 
     querydb = DBConnection.client['langchain_db']['documentation_query']
-    
+
     query = {
         "project_name": collection_name,
         "status": "pending",
@@ -156,7 +158,7 @@ async def vulnerable_code(collection_name: str):
     encodable_docs = custom_jsonable_encoder(documents)
 
     print("[]")
-    
+
     return encodable_docs
 
 
@@ -197,13 +199,14 @@ def send_to_sqs(queue_name, collection_name, task):
 @app.post("/debugger/{collection_name}/initialize_thread")
 async def initialize_thread():
     db = DBConnection.client['langchain_db']['debugger_query']
-    debugger = Debugger()
-    thread_id, assistant_id = debugger.initialize_thread()
-    return {"thread_id": thread_id, "assistant_id": assistant_id}
+    thread_id = initialize_thread_debugger()
+
+    return {"thread_id": thread_id}
 
 
-@app.post("/debugger/{collection_name}/{threadID}/{assistantID}")
-async def fetch_documents_from_code_async(collection_name: str, threadID: str, assistantID: str, query_item: QueryItem = Body(...)):
+@app.post("/debugger/{collection_name}/{threadID}")
+async def fetch_documents_from_code_async(collection_name: str, threadID: str,
+                                          query_item: QueryItem = Body(...)):
     db = DBConnection.client['code_sync']
 
     cursor = db[collection_name].find()
@@ -222,16 +225,27 @@ async def fetch_documents_from_code_async(collection_name: str, threadID: str, a
 
     encodable_docs = custom_jsonable_encoder(documents)
 
-    completion = await Debugger.generate_debugger_completions(encodable_docs, threadID, assistantID)
-    completion_id = await querydb.insert_one(completion)
+    completion = await generate_debugger_completions(encodable_docs, threadID, query)
+    completion_id, run_status = await querydb.insert_one(completion)
 
     print(completion_id, completion)
+
+    if run_status in ["failed", "expired"]:
+        raise HTTPException(status_code=500, detail="Run %s" % run_status)
 
     return completion
 
 
-@app.post("/optimizer/{collection_name}")
-async def fetch_documents_from_code_async(collection_name: str, query_item: QueryItem = Body(...)):
+@app.post("/opimizer/{collection_name}/initialize_thread")
+async def initialize_thread():
+    db = DBConnection.client['langchain_db']['optimizer_query']
+    thread_id = initialize_thread_optimizer()
+
+    return {"thread_id": thread_id}
+
+
+@app.post("/optimizer/{collection_name}/{threadID}")
+async def fetch_documents_from_code_async(collection_name: str, threadID: str, query_item: QueryItem = Body(...)):
     db = DBConnection.client['code_sync']
 
     cursor = db[collection_name].find()
@@ -249,7 +263,17 @@ async def fetch_documents_from_code_async(collection_name: str, query_item: Quer
     print(query_id.inserted_id)
 
     encodable_docs = custom_jsonable_encoder(documents)
-    return encodable_docs
+
+    completion = await generate_optimizer_completions(encodable_docs, threadID, query)
+    completion_id, run_status = await querydb.insert_one(completion)
+
+    print(completion_id, completion)
+
+    if run_status in ["failed", "expired"]:
+        raise HTTPException(status_code=500, detail="Run %s" % run_status)
+
+    return completion
+
 
 @app.post("/security/{collection_name}")
 async def fetch_documentation(collection_name: str):
@@ -272,6 +296,7 @@ async def fetch_documentation(collection_name: str):
 
     return {"message": "Security check is being processed and will be available soon"}
 
+
 @app.get("/security/{collection_name}")
 async def fetch_security(collection_name: str):
     db = DBConnection.client['langchain_db']['security_query']
@@ -283,6 +308,7 @@ async def fetch_security(collection_name: str):
     # make the response encodable
     doc = custom_jsonable_encoder(doc)
     return doc
+
 
 @app.post("/documentation/{collection_name}")
 async def fetch_documents_from_code(collection_name: str):
