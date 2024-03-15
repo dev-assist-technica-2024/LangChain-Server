@@ -12,13 +12,10 @@ mongodb_url = os.getenv("MONGODB_URL")
 openai_api_key = os.getenv("OPENAI_API_KEY")
 openai_assistant_id = os.getenv("OPENAI_SEC_ASSISTANT_ID")
 
-
 class DBConnection:
     client: AsyncIOMotorClient = None
 
-
 import asyncio
-
 
 class Security:
     async def call_assistant_with_markdown(collection_name):
@@ -28,16 +25,29 @@ class Security:
         cursor = db[collection_name].find()
 
         result = []
-        thread_id = None
+
+        querydb = DBConnection.client['langchain_db']['security_query']
+        # find the query in the database
+        query = {
+            "project_name": collection_name,
+        }
+        res = await querydb.find_one(query)
+        thread_id = res.get("thread_id")
+        if thread_id is not None:
+            print(thread_id)
+        else:
+            print("No thread_id found in the document.")
 
         async for document in cursor:
-            print(document)
-            # First create an empty thread
+            print(document) 
+
+            # if thread_id is None:
+                # First create an empty thread
             empty_thread = client.beta.threads.create()
             thread_id = empty_thread.id
-
-            # Add message to the thread
-            thread_message = client.beta.threads.messages.create(
+           
+           # Add message to the thread
+            client.beta.threads.messages.create(
                 thread_id,
                 role="user",
                 content=f"Find security issues for this {document}",
@@ -51,7 +61,7 @@ class Security:
 
             timeout = 600  # seconds
             start_time = time.time()
-
+            
             while True:
                 await asyncio.sleep(1)  # Use asyncio.sleep for async code
                 run = client.beta.threads.runs.retrieve(thread_id=thread_id, run_id=run.id)
@@ -63,8 +73,8 @@ class Security:
                 messages_page = client.beta.threads.messages.list(thread_id)
                 messages = messages_page.data
                 if messages:
-                    print(messages[0].content[0].text.value)
-                    result.append(messages[0].content[0].text.value)
+                    textArr = messages[0].content[0].text.value
+                    result.append(textArr)
                 else:
                     print("No messages found in the thread.")
             else:
@@ -105,3 +115,8 @@ class Security:
                 print("The document was not modified (the new data might be the same as the old data).")
         else:
             print(f"No document found for project '{collection_name}' with the specified criteria.")
+
+        
+
+
+        
