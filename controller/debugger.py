@@ -2,7 +2,6 @@ from openai import OpenAI
 from dotenv import load_dotenv
 import time
 import os
-from fastapi import HTTPException
 
 load_dotenv()
 
@@ -54,21 +53,11 @@ async def initialize_thread_debugger():
 
 async def generate_debugger_completions(documents, threadID, query):
     prompt = ""
-    codePrompt = '''
-    Codebase:
-    %s
-    //Code Start
-    %s
-    //Code End
-    
-    '''
-    userQuery = '''
-    \nUser Query
-    %s
-    '''
+    codePrompt = "Codebase:\n%s\n//Code Start\n%s\n//Code End\n "
+    userQuery = "\nUser Query\n%s\n"
 
     for document in documents:
-        prompt = prompt + codePrompt % document.name, document.content
+        prompt = prompt + codePrompt % (document['name'], document['content'])
 
     prompt + userQuery % query
 

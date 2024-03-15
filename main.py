@@ -14,6 +14,7 @@ import asyncio
 from controller.debugger import initialize_thread_debugger, generate_debugger_completions
 from controller.optimizer import initialize_thread_optimizer, generate_optimizer_completions
 from controller.security import Security
+from fastapi.middleware.cors import CORSMiddleware
 
 
 class QueryItem(BaseModel):
@@ -22,6 +23,14 @@ class QueryItem(BaseModel):
 
 load_dotenv()
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 logger = logging.getLogger(__name__)
 
@@ -196,10 +205,10 @@ def send_to_sqs(queue_name, collection_name, task):
 #    "question": "What is the current use of artificial intelligence in software development?"
 # }
 
-@app.post("/debugger/{collection_name}/initialize_thread")
+@app.get("/debugger/{collection_name}/initialize_thread")
 async def initialize_thread(collection_name: str):
     # db = DBConnection.client['langchain_db']['debugger_query']
-    thread_id = initialize_thread_debugger()
+    thread_id = await initialize_thread_debugger()
 
     return {"thread_id": thread_id}
 
@@ -220,15 +229,10 @@ async def fetch_documents_from_code_async(collection_name: str, threadID: str,
     query = query_item.dict()
     query_id = await querydb.insert_one(query)
 
-    # print the query id
-    print(query_id.inserted_id)
-
     encodable_docs = custom_jsonable_encoder(documents)
 
-    completion = await generate_debugger_completions(encodable_docs, threadID, query)
-    completion_id, run_status = await querydb.insert_one(completion)
-
-    print(completion_id, completion)
+    completion, run_status = await generate_debugger_completions(encodable_docs, threadID, query['question'])
+    completion_id = await querydb.insert_one({"completion": completion})
 
     if run_status in ["failed", "expired"]:
         raise HTTPException(status_code=500, detail="Run %s" % run_status)
@@ -236,10 +240,10 @@ async def fetch_documents_from_code_async(collection_name: str, threadID: str,
     return completion
 
 
-@app.post("/optimizer/{collection_name}/initialize_thread")
+@app.get("/optimizer/{collection_name}/initialize_thread")
 async def initialize_thread():
     db = DBConnection.client['langchain_db']['optimizer_query']
-    thread_id = initialize_thread_optimizer()
+    thread_id = await initialize_thread_optimizer()
 
     return {"thread_id": thread_id}
 
@@ -259,15 +263,10 @@ async def fetch_documents_from_code_async(collection_name: str, threadID: str, q
     query = query_item.dict()
     query_id = await querydb.insert_one(query)
 
-    # print the query id
-    print(query_id.inserted_id)
-
     encodable_docs = custom_jsonable_encoder(documents)
 
-    completion = await generate_optimizer_completions(encodable_docs, threadID, query)
-    completion_id, run_status = await querydb.insert_one(completion)
-
-    print(completion_id, completion)
+    completion, run_status = await generate_optimizer_completions(encodable_docs, threadID, query['question'])
+    completion_id = await querydb.insert_one({"completion": completion})
 
     if run_status in ["failed", "expired"]:
         raise HTTPException(status_code=500, detail="Run %s" % run_status)
@@ -284,7 +283,7 @@ async def fetch_documentation(collection_name: str):
         "status": "pending",
         "result": None,
     }
-    
+
     doc = await querydb.find_one({"project_name": collection_name})
     if not doc:
         print("Document does not exist")
@@ -335,6 +334,7 @@ async def fetch_documents_from_code(collection_name: str):
 
     return response
 
+
 @app.get("/documentation/{collection_name}")
 async def fetch_documentation(collection_name: str):
     db = DBConnection.client['langchain_db']['documentation']
@@ -344,6 +344,7 @@ async def fetch_documentation(collection_name: str):
         raise HTTPException(status_code=404, detail="Document not found")
 
     return doc
+
 
 @app.get("/projects")
 async def fetch_projects():
