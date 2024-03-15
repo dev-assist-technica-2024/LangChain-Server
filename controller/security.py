@@ -41,10 +41,10 @@ class Security:
         async for document in cursor:
             print(document) 
 
-            if thread_id is None:
+            # if thread_id is None:
                 # First create an empty thread
-                empty_thread = client.beta.threads.create()
-                thread_id = empty_thread.id
+            empty_thread = client.beta.threads.create()
+            thread_id = empty_thread.id
            
            # Add message to the thread
             client.beta.threads.messages.create(
@@ -73,8 +73,8 @@ class Security:
                 messages_page = client.beta.threads.messages.list(thread_id)
                 messages = messages_page.data
                 if messages:
-                    print(messages[0].content[0].text.value)
-                    result.append(messages[0].content[0].text.value)
+                    textArr = messages[0].content[0].text.value
+                    result.append(textArr)
                 else:
                     print("No messages found in the thread.")
             else:

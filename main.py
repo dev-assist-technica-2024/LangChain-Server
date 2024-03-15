@@ -271,7 +271,19 @@ async def fetch_documentation(collection_name: str):
     send_to_sqs("security", collection_name, "security")
 
     return {"message": "Security check is being processed and will be available soon"}
-    
+
+@app.get("/security/{collection_name}")
+async def fetch_security(collection_name: str):
+    db = DBConnection.client['langchain_db']['security_query']
+
+    doc = await db.find_one({"project_name": collection_name})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    # make the response encodable
+    doc = custom_jsonable_encoder(doc)
+    return doc
+
 @app.post("/documentation/{collection_name}")
 async def fetch_documents_from_code(collection_name: str):
     # send it to AWS SQS
@@ -286,12 +298,26 @@ async def fetch_documents_from_code(collection_name: str):
         print("Document does not exist")
         await db.insert_one(query)
     else:
+        # update the document status to pending
+        doc = await db.find_one_and_update(
+            {"project_name": collection_name},
+            {"$set": {"status": "pending"}}
+        )
         print("Document already exists")
 
     response = {"message": "your document is being processed and will be available soon"}
 
     return response
 
+@app.get("/documentation/{collection_name}")
+async def fetch_documentation(collection_name: str):
+    db = DBConnection.client['langchain_db']['documentation']
+
+    doc = await db.find_one({"project_name": collection_name})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    return doc
 
 @app.get("/projects")
 async def fetch_projects():
