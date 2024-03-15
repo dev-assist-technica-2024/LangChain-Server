@@ -4,21 +4,24 @@ import os
 import time
 import logging
 import pprint
+from DocumentationGenerator import DocumentationGenerator
+import google.generativeai as genai
+
+generator = DocumentationGenerator(fileName, fileContents)
+query_output = generator.query(
+    """
+(function_definition) @function
+(class_definition) @class
+"""
+)
 
 """
-from DocumentationGenerator import DocumentationGenerator
 
 fileName = "DocumentationGenerator.py"
 fileContents = open("DocumentationGenerator.py", "r").read()
 
-generator = DocumentationGenerator(fileName, fileContents)
-query_output = generator.query(
-    \"\"\"
-(function_definition) @function
-(class_definition) @class
-\"\"\"
-)
-import google.generativeai as genai
+
+
 
 # Set your API key (replace with your actual API key)
 genai.configure(api_key="")
