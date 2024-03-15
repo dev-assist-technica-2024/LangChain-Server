@@ -22,7 +22,7 @@ class DocumentationGenerator:
 
 Language.build_library(
     "build/languages.so",
-    ["vendor/javascript", "vendor/python"],
+    ["treesitter/javascript", "treesitter/python"],
 )
 
 DocumentationGenerator.ext_to_language_map = {
