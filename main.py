@@ -14,7 +14,7 @@ import asyncio
 from controller.debugger import initialize_thread_debugger, generate_debugger_completions
 from controller.optimizer import initialize_thread_optimizer, generate_optimizer_completions
 from controller.security import Security
-
+from fastapi.middleware.cors import CORSMiddleware
 
 class QueryItem(BaseModel):
     question: str
@@ -22,6 +22,14 @@ class QueryItem(BaseModel):
 
 load_dotenv()
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"], 
+    allow_headers=["*"], 
+)
 
 logger = logging.getLogger(__name__)
 
