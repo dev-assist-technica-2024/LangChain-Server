@@ -260,7 +260,13 @@ async def fetch_documentation(collection_name: str):
         "status": "pending",
         "result": None,
     }
-    query_id = await querydb.insert_one(query)
+    
+    doc = await querydb.find_one({"project_name": collection_name})
+    if not doc:
+        print("Document does not exist")
+        await querydb.insert_one(query)
+    else:
+        print("Document already exists")
 
     send_to_sqs("security", collection_name, "security")
 
@@ -274,7 +280,13 @@ async def fetch_documents_from_code(collection_name: str):
     db = DBConnection.client['langchain_db']['documentation']
     query = {"project_name": collection_name, "documentations": []}
 
-    await db.insert_one(query)
+    # if collection_name is in skip else create a new document
+    doc = await db.find_one({"project_name": collection_name})
+    if not doc:
+        print("Document does not exist")
+        await db.insert_one(query)
+    else:
+        print("Document already exists")
 
     response = {"message": "your document is being processed and will be available soon"}
 

@@ -25,16 +25,29 @@ class Security:
         cursor = db[collection_name].find()
 
         result = []
-        thread_id = None
+
+        querydb = DBConnection.client['langchain_db']['security_query']
+        # find the query in the database
+        query = {
+            "project_name": collection_name,
+        }
+        res = await querydb.find_one(query)
+        thread_id = res.get("thread_id")
+        if thread_id is not None:
+            print(thread_id)
+        else:
+            print("No thread_id found in the document.")
 
         async for document in cursor:
             print(document) 
-            # First create an empty thread
-            empty_thread = client.beta.threads.create() 
-            thread_id = empty_thread.id  
+
+            if thread_id is None:
+                # First create an empty thread
+                empty_thread = client.beta.threads.create()
+                thread_id = empty_thread.id
            
            # Add message to the thread
-            thread_message = client.beta.threads.messages.create(
+            client.beta.threads.messages.create(
                 thread_id,
                 role="user",
                 content=f"Find security issues for this {document}",
