@@ -241,8 +241,8 @@ async def fetch_documents_from_code_async(collection_name: str, threadID: str,
 
 
 @app.get("/optimizer/{collection_name}/initialize_thread")
-async def initialize_thread():
-    db = DBConnection.client['langchain_db']['optimizer_query']
+async def initialize_thread(collection_name: str):
+    # db = DBConnection.client['langchain_db']['optimizer_query']
     thread_id = await initialize_thread_optimizer()
 
     return {"thread_id": thread_id}
