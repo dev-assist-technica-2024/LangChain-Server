@@ -2,6 +2,7 @@ from openai import OpenAI
 from dotenv import load_dotenv
 import time
 import os
+from fastapi import HTTPException
 
 load_dotenv()
 
@@ -58,7 +59,7 @@ async def generate_debugger_completions(documents, threadID, query):
 
     for document in documents:
         prompt = prompt + codePrompt % (document['name'], document['content'])
-
+    
     prompt + userQuery % query
 
     message = client.beta.threads.messages.create(

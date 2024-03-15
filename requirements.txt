@@ -4,7 +4,7 @@ python-dotenv
 boto3
 openai
 pydantic
-bson
+pymongo>=3.11
 uvicorn
 asyncio
 annotated-types==0.6.0
@@ -29,3 +29,4 @@ tqdm==4.66.2
 tree-sitter==0.21.0
 typing_extensions==4.10.0
 urllib3
+python-multipart
