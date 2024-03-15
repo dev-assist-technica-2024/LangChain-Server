@@ -9,7 +9,7 @@ from pydantic import BaseModel
 import boto3
 import json
 import asyncio
-from openai import OpenAI
+# from openai import OpenAI
 
 from controller.debugger import Debugger
 from controller.docs import Docs
@@ -28,15 +28,16 @@ aws_access_key_id = os.getenv("AWS_ACCESS_KEY_ID")
 aws_secret_access_key = os.getenv("AWS_SECRET_ACCESS_KEY")
 aws_default_region = os.getenv("AWS_DEFAULT_REGION")
 
+
 class DBConnection:
     client: AsyncIOMotorClient = None
 
 
 async def poll_sqs_messages():
     sqs = boto3.client('sqs',
-            aws_access_key_id=aws_access_key_id,
-            aws_secret_access_key=aws_secret_access_key,
-            region_name=aws_default_region)
+                       aws_access_key_id=aws_access_key_id,
+                       aws_secret_access_key=aws_secret_access_key,
+                       region_name=aws_default_region)
 
     while True:
         try:
@@ -44,7 +45,7 @@ async def poll_sqs_messages():
                 QueueUrl=queue_url,
                 AttributeNames=['All'],
                 MaxNumberOfMessages=10,
-                WaitTimeSeconds=20  
+                WaitTimeSeconds=20
             )
 
             if 'Messages' in response:
@@ -64,7 +65,8 @@ async def poll_sqs_messages():
         except Exception as e:
             logger.error(f"Error polling SQS: {e}")
 
-        await asyncio.sleep(1) 
+        await asyncio.sleep(1)
+
 
 @app.on_event("startup")
 async def startup_db_client():
@@ -89,10 +91,11 @@ def custom_jsonable_encoder(obj, **kwargs):
                 for key, value in obj.items()}
     return jsonable_encoder(obj, **kwargs)
 
+
 def send_to_sqs(queue_name, collection_name, task):
     try:
         sqs = boto3.client(
-            'sqs',  
+            'sqs',
             aws_access_key_id=aws_access_key_id,
             aws_secret_access_key=aws_secret_access_key,
             region_name=aws_default_region
@@ -117,10 +120,17 @@ def send_to_sqs(queue_name, collection_name, task):
     except Exception as e:
         logger.error(f"Failed to send message to SQS: {str(e)}")
 
+
 # pass collection name (project name)
 # sample body {
 #    "question": "What is the current use of artificial intelligence in software development?"
 # }
+
+@app.post("/debugger/{collection_name}/initialize_thread")
+async def initialize_thread():
+    db = DBConnection.client['langchain_db']['debugger_query']
+    debugger = Debugger()
+    thread_id, assistant_id = debugger.initialize_thread()
 
 
 @app.post("/debugger/{collection_name}")
@@ -143,11 +153,12 @@ async def fetch_documents_from_code_async(collection_name: str, query_item: Quer
 
     encodable_docs = custom_jsonable_encoder(documents)
 
-    print("[]")
-    debugger = Debugger(collection_name, query, encodable_docs)
-    debugger.invoke()
+    completion = await Debugger.generate_debugger_completions(encodable_docs, threadID, assistantID)
+    completion_id = await querydb.insert_one(completion)
 
-    return encodable_docs
+    print(completion_id, completion)
+
+    return completion
 
 
 @app.post("/optimizer/{collection_name}")
@@ -171,10 +182,9 @@ async def fetch_documents_from_code_async(collection_name: str, query_item: Quer
     encodable_docs = custom_jsonable_encoder(documents)
     return encodable_docs
 
-    
+
 @app.post("/documentation/{collection_name}")
 async def fetch_documents_from_code(collection_name: str):
-
     # send it to AWS SQS
     send_to_sqs("documentation", collection_name, "fetch_documentation")
 
@@ -182,7 +192,6 @@ async def fetch_documents_from_code(collection_name: str):
     query = {"project_name": collection_name, "documentations": []}
 
     await db.insert_one(query)
-
 
     response = {"message": "your document is being processed and will be available soon"}
 
@@ -198,18 +207,20 @@ async def fetch_projects():
     projects = {"projects": projects}
     return projects
 
+
 @app.get("/steps-to-deploy/{collection_name}")
 async def fetch_steps_to_deploy(collection_name: str):
     db = DBConnection.client['langchain_db']['deployment']
-    
-    cursor = db[collection_name].find()  
-    documents = await cursor.to_list(length=100) 
-    
+
+    cursor = db[collection_name].find()
+    documents = await cursor.to_list(length=100)
+
     if not documents:
         raise HTTPException(status_code=404, detail="Documents not found")
-    
+
     encodable_docs = custom_jsonable_encoder(documents)
     return encodable_docs
+
 
 if __name__ == "__main__":
     import uvicorn

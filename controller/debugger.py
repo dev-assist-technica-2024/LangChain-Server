@@ -1,64 +1,126 @@
-import os
-
-from langchain_openai import ChatOpenAI
-# from langchain.tools.tavily_search import TavilySearchResults
-from langchain import hub
-from langchain.agents import create_openai_tools_agent
-from langchain.agents import AgentExecutor
+from openai import OpenAI
 from dotenv import load_dotenv
-from langchain_mongodb.chat_message_histories import MongoDBChatMessageHistory
-from langchain_core.runnables.history import RunnableWithMessageHistory
-
-# from langchain_community.utilities import GoogleSearchAPIWrapper
-from langchain_community.utilities import StackExchangeAPIWrapper
-from langchain_core.tools import Tool
+import time
+import logging
+import os
 
 load_dotenv()
 
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
 mongodb_url = os.getenv("MONGODB_URL")
 openai_api_key = os.getenv("OPENAI_API_KEY")
+openai_assistant_id = os.getenv("OPENAI_ASSISTANT_ID")
+
 
 class Debugger:
-    llm = ChatOpenAI(openai_api_key=openai_api_key,
-                     model="gpt-3.5-turbo-0125",
-                     temperature=0)
-    # search = GoogleSearchAPIWrapper()
-    stackexchange = StackExchangeAPIWrapper()
-    stackExchangeTool = Tool(
-        name="stack_exchange_search",
-        description="Search Stack Overflow for recent results.",
-        func=stackexchange.run,
-    )
-    # googleSearchTool = Tool(
-    #     name="google_search",
-    #     description="Search Google for error",
-    #     func=search.run
-    # )
-    # print(tool.run("Hydration Error failed"))
-    tools = [stackExchangeTool]
-    prompt = hub.pull("jacklinkrypton/openai-functions-agent")
-    agent = create_openai_tools_agent(llm, tools, prompt)
-    agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
 
-    def __init__(self, collection_name, query, code):
-        self.collection_name = collection_name
-        self.query = query
-        self.code = code
+    def __init__(self):
+        self.client = OpenAI()
 
-    def invoke(self) -> None:
-        message_history = MongoDBChatMessageHistory(
-            session_id=self.collection_name,
-            connection_string=mongodb_url,
-            database_name="langchain_db",
-            collection_name=self.collection_name,
+    async def initialize_thread(self):
+        assistant = self.client.beta.assistants.create(
+            name="Code Debugger",
+            instructions="You are a code debugger. You will be given an entire codebase along with an error stacktrace or "
+                         "user query or both. You will have to identify where the error is happening and give the solution."
+
+                         "You will be given the codebase in the format:"
+
+                         "Codebase:"
+                         "{File Path}"
+                         "//Code Start"
+                         "{Code}"
+                         "//Code End"
+
+                         "Everything after the Codebase label are the different files with their file path and code. The files "
+                         "denoting code will have //Code Start and //Code End to denote the code. There will be configuration "
+                         "files there as well and they wont have the code identifiers so you will know which ones are the "
+                         "config files."
+
+                         "After this, you will be given an error stacktrace or the user query. It will be in the format:"
+
+                         "User Query:"
+                         "{Error}"
+
+                         "In the error field it will either be some sort of query regarding the code or a stacktrace"
+
+                         "Given all this you will figure out where the error is happening, why the error is happening and give "
+                         "the solution with code if necessary. Explain in utmost detail. If"
+                         "you don't know the answer, say you don't know.",
+
+            tools=[{"type": "code_interpreter"}],
+            model="gpt-4-turbo-preview",
         )
-        agent_with_chat_history = RunnableWithMessageHistory(
-            Debugger.agent_executor,
-            lambda session_id: message_history,
-            input_messages_key="input",
-            history_messages_key="chat_history",
+        thread = self.client.beta.threads.create()
+        return thread.id, assistant.id
+
+    async def generate_debugger_completions(self, documents, threadID, assistantID):
+        prompt = ""
+        codePrompt = '''
+        %s
+        //Code Start
+        %s
+        //Code End
+        
+        '''
+        userQuery = '''
+        \nUser Query
+        %s
+        '''
+
+        for document in documents:
+            prompt = prompt + codePrompt % document.name, document.content
+
+        message = self.client.beta.threads.messages.create(
+            thread_id=threadID,
+            role="user",
+
+            content='''
+Codebase:
+./main.py
+//Code Start
+from langchain.llms import OpenAI
+from langchain.chains import RetrievalQA
+from langchain.document_loaders import WikipediaLoader
+
+# Load Wikipedia page
+loader = WikipediaLoader("https://en.wikipedia.org/wiki/Artificial_intelligence")
+docs = loader.load()
+
+# Create LLM and chain
+llm = OpenAI(temperature=0)  
+chain = RetrievalQA.from_llm_and_documents(llm, docs)
+
+# Ask a query 
+query = "Summarize the history of artificial intelligence"
+result = chain.run(query)
+print(result)
+//Code End 
+
+
+User Query:
+The program crashes at times and doesnt always generate the summary properly. What wrong with this? Fix this for me
+'''
         )
-        agent_with_chat_history.invoke(
-            {"input": f"{self.query}: \n {self.code}"},
-            config={"configurable": {"session_id": f'{self.collection_name}'}},
+
+        run = self.client.beta.threads.runs.create(
+            thread_id=threadID,
+            assistant_id=assistantID,
+            instructions=""
         )
+
+        while run.status in ['queued', 'in_progress', 'cancelling']:
+            time.sleep(1)
+            run = self.client.beta.threads.runs.retrieve(
+                thread_id=threadID,
+                run_id=run.id
+            )
+
+        if run.status == 'completed':
+            messages = self.client.beta.threads.messages.list(
+                thread_id=threadID
+            )
+            if messages.data:
+                return messages.data[0].content[0].text.value
+            else:
+                return "No messages found"

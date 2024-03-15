@@ -12,8 +12,10 @@ mongodb_url = os.getenv("MONGODB_URL")
 openai_api_key = os.getenv("OPENAI_API_KEY")
 openai_assistant_id = os.getenv("OPENAI_ASSISTANT_ID")
 
+
 class DBConnection:
     client: AsyncIOMotorClient = None
+
 
 class Docs:
     async def call_assistant_with_markdown(collection_name):
@@ -25,20 +27,20 @@ class Docs:
         async for document in cursor:
 
             # First create an empty thread
-            empty_thread = client.beta.threads.create() 
-            thread_id = empty_thread.id  
-           
-           # Add message to the thread
+            empty_thread = client.beta.threads.create()
+            thread_id = empty_thread.id
+
+            # Add message to the thread
             thread_message = client.beta.threads.messages.create(
-            thread_id,
-            role="user",
-            content=f"Generate docs for this {document}",
+                thread_id,
+                role="user",
+                content=f"Generate docs for this {document}",
             )
 
             # Run the thread with your assistant id
             run = client.beta.threads.runs.create(
-            thread_id=thread_id,
-            assistant_id=openai_assistant_id
+                thread_id=thread_id,
+                assistant_id=openai_assistant_id
             )
 
             # Wait for the run to complete
@@ -47,7 +49,7 @@ class Docs:
                 run = client.beta.threads.runs.retrieve(thread_id=thread_id, run_id=run.id)
                 if run.status == "completed":
                     break
-            
+
             messages_page = client.beta.threads.messages.list(thread_id)
             messages = messages_page.data
             if messages:
