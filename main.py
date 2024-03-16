@@ -16,10 +16,12 @@ import uvicorn
 
 from controller.debugger import initialize_thread_debugger, generate_debugger_completions
 from controller.optimizer import initialize_thread_optimizer, generate_optimizer_completions
+from controller.testCases import TestCases
 from controller.security import Security
 from fastapi.middleware.cors import CORSMiddleware
 
 from controller.docs import Documentation
+from controller.chatbot import ChatBot
 
 class QueryItem(BaseModel):
     question: str
@@ -82,7 +84,22 @@ async def poll_sqs_messages():
                             QueueUrl=queue_url,
                             ReceiptHandle=message['ReceiptHandle']
                         )
+                    elif message_body.get("task") == "fetch_testcase":
+                        print("Fetching test cases...")
 
+                        await TestCases.get_test_cases(project_name)
+                        sqs.delete_message(
+                            QueueUrl=queue_url,
+                            ReceiptHandle=message['ReceiptHandle']
+                        )
+                    elif message_body.get("task") == "fetch_chatbot":
+                        print("Finituning chatbot...")
+
+                        await TestCases.get_test_cases(project_name)
+                        sqs.delete_message(
+                            QueueUrl=queue_url,
+                            ReceiptHandle=message['ReceiptHandle']
+                        )
                     elif message_body.get("task") == "fetch_steps_to_deploy":
                         print("Fetching steps to deploy...")
 
@@ -345,12 +362,45 @@ async def fetch_documents_from_code(collection_name: str):
 
     send_to_sqs("fetch_documentation", collection_name, "fetch_documentation")
 
-    return {"message": "Security check is being processed and will be available soon"}
+    return {"message": "Documentation is being processed and will be available soon"}
 
 
 @app.get("/documentation/{collection_name}")
 async def fetch_documentation(collection_name: str):
     db = DBConnection.client['langchain_db']['documentation_query']
+
+    doc = await db.find_one({"project_name": collection_name})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    doc = custom_jsonable_encoder(doc)
+    return doc
+
+@app.post("/test_cases/{collection_name}")
+async def fetch_testcase_from_code(collection_name: str):
+    querydb = DBConnection.client['langchain_db']['test_query']
+    # save the query to the database
+    query = {
+        "project_name": collection_name,
+        "status": "pending",
+        "result": None,
+    }
+    
+    doc = await querydb.find_one({"project_name": collection_name})
+    if not doc:
+        print("Document does not exist")
+        await querydb.insert_one(query)
+    else:
+        print("Document already exists")
+
+    send_to_sqs("fetch_testcase", collection_name, "fetch_testcase")
+
+    return {"message": "Test cases is being processed and will be available soon"}
+
+
+@app.get("/test_cases/{collection_name}")
+async def fetch_testcase(collection_name: str):
+    db = DBConnection.client['langchain_db']['test_query']
 
     doc = await db.find_one({"project_name": collection_name})
     if not doc:
@@ -372,7 +422,7 @@ async def fetch_projects():
 
 @app.get("/steps-to-deploy/{collection_name}")
 async def fetch_steps_to_deploy(collection_name: str):
-    db = DBConnection.client['langchain_db']['deployment']
+    db = DBConnection.client['langchain_db']['chatbot']
 
     cursor = db[collection_name].find()
     documents = await cursor.to_list(length=100)
@@ -402,6 +452,48 @@ async def transcribe_audio(file: UploadFile = File(...)):
 
     # Return the transcription text
     return {"transcription": transcription.text}
+
+@app.post("/chatbot/{collection_name}")
+async def fetch_chatbot(collection_name: str):
+    querydb = DBConnection.client['langchain_db']['chatbot']
+
+    # check if the document is being processed
+    doc = await querydb.find_one({"project_name": collection_name})
+    if doc:
+        if doc.get("status") == "pending":
+            return {"message": "Chatbot is being processed and will be available soon","status" : False}
+        elif doc.get("status") == "completed":
+            return {"message": "Chatbot is already available" ,"status" : True}
+
+    # save the query to the database
+    query = {
+        "project_name": collection_name,
+        "status": "pending",
+        "result": None,
+    }
+    
+    doc = await querydb.find_one({"project_name": collection_name})
+    if not doc:
+        print("Document does not exist")
+        await querydb.insert_one(query)
+    else:
+        print("Document already exists")
+
+    send_to_sqs("fetch_chatbot", collection_name, "fetch_chatbot")
+
+    return {"message": "Chatbot is being processed and will be available soon"}
+
+@app.get("/chatbot/{collection_name}")
+async def fetch_chatbot(collection_name: str, query_item: QueryItem = Body(...)):
+    res = await ChatBot.generate_chatbot_completions(collection_name, query_item.question)
+    
+    # make the response encodable
+    res = custom_jsonable_encoder(res)
+
+    # convert the response to a JSON object
+    res = json.loads(res)
+
+    return res
 
 if __name__ == "__main__":
 
