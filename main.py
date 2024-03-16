@@ -95,7 +95,7 @@ async def poll_sqs_messages():
                     elif message_body.get("task") == "fetch_chatbot":
                         print("Finituning chatbot...")
 
-                        await TestCases.get_test_cases(project_name)
+                        await ChatBot.call_assistant_with_markdown(collection_name=project_name)
                         sqs.delete_message(
                             QueueUrl=queue_url,
                             ReceiptHandle=message['ReceiptHandle']
@@ -483,17 +483,13 @@ async def fetch_chatbot(collection_name: str):
 
     return {"message": "Chatbot is being processed and will be available soon"}
 
-@app.get("/chatbot/{collection_name}")
+@app.post("/chatbot/query/{collection_name}")
 async def fetch_chatbot(collection_name: str, query_item: QueryItem = Body(...)):
     res = await ChatBot.generate_chatbot_completions(collection_name, query_item.question)
-    
-    # make the response encodable
-    res = custom_jsonable_encoder(res)
 
-    # convert the response to a JSON object
-    res = json.loads(res)
-
-    return res
+    return {
+        "response": res
+    }
 
 if __name__ == "__main__":
 

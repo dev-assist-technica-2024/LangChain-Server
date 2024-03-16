@@ -18,51 +18,61 @@ class DBConnection:
 import asyncio
 
 class ChatBot:
+
     async def generate_chatbot_completions(collection_name, query):
         DBConnection.client = AsyncIOMotorClient(mongodb_url)
 
-        querydb = DBConnection.client['langchain_db']['chatbot']
-        # find the query in the database
-        query = {
-            "project_name": collection_name,
-        }
+        # get the entire code from the database
+        db = DBConnection.client['code_sync']
+        cursor = db[collection_name].find()
+        result = []
 
-        res = await querydb.find_one
-        threadID = res.get("thread_id")
-        if threadID is not None:
-            print(threadID)
-        else:
-            print("No thread_id found in the document.")
-            return None
+        async for document in cursor:
+            print(document)
+            result.append(document)
+
         client = OpenAI(api_key=openai_api_key)
-        run = client.beta.threads.runs.create(
-            thread_id=threadID,
-            assistant_id=openai_assistant_id,
-            instructions=query
+
+        # create a new thread
+        empty_thread = client.beta.threads.create()
+        threadID = empty_thread.id
+
+        # Add message to the thread
+        client.beta.threads.messages.create(
+            threadID,
+            role="user",
+            content=f"This is the codebase {result} and this is the query {query}please help me to solve this issue.",
         )
 
-        while run.status in ['queued', 'in_progress', 'cancelling']:
-            time.sleep(1)
-            run = client.beta.threads.runs.retrieve(
-                thread_id=threadID,
-                run_id=run.id
-            )
-        
-        if run.status == 'completed':
-            messages = client.beta.threads.messages.list(
-                thread_id=threadID
-            )
+        # Run the thread with your assistant id
+        run = client.beta.threads.runs.create(
+            threadID,
+            assistant_id=openai_assistant_id
+        )
+
+        # Wait for the run to complete
+        timeout = 600  # seconds
+        start_time = time.time()
+            
+        while True:
+            await asyncio.sleep(1)  # Use asyncio.sleep for async code
+            run = client.beta.threads.runs.retrieve(thread_id=threadID, run_id=run.id)
+            if run.status == "completed" or time.time() - start_time > timeout:
+                break
+
+        # Proceed only if run completed successfully
+        if run.status == "completed":
+            messages_page = client.beta.threads.messages.list(threadID)
+            messages = messages_page.data
             if messages:
                 textArr = messages[0].content[0].text.value
                 return textArr
             else:
                 print("No messages found in the thread.")
-
+                return None
         else:
             print("The run did not complete successfully.")
             return None
-        
-        return None
 
     async def call_assistant_with_markdown(collection_name):
         DBConnection.client = AsyncIOMotorClient(mongodb_url)
