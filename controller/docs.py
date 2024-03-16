@@ -50,7 +50,8 @@ class Documentation:
             generator = DocumentationGenerator(fileName, fileContents)
             query_output = generator.query(
             """
-            (function_declaration) @function
+            (call_expression
+                arguments: (arguments (string) (arrow_function))) @function
             """
             )
 
@@ -62,7 +63,7 @@ class Documentation:
                 print(response.text)
                 result.append({
                     "name": fileName,
-                    "content": fileContents,
+                    "content": bytes.decode(func_or_class["function"].text, "utf-8"),
                     "documentation": response.text
                 })
 
@@ -80,7 +81,6 @@ class Documentation:
         # Filter to find the specific document
         filter_query = {
             "project_name": collection_name,
-            "status": "pending",
         }
 
         update_document = {
