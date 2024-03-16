@@ -1,0 +1,180 @@
+from openai import OpenAI
+from motor.motor_asyncio import AsyncIOMotorClient
+import os
+import time
+import logging
+import pprint
+import json
+
+# Set up basic configuration for logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+mongodb_url = os.getenv("MONGODB_URL")
+openai_api_key = os.getenv("OPENAI_API_KEY")
+openai_assistant_id = os.getenv("OPENAI_SOL_ASSISTANT_ID")
+
+class DBConnection:
+    client: AsyncIOMotorClient = None
+
+import asyncio
+
+class Solidity:
+    async def call_assistant_with_markdown(collection_name):
+        DBConnection.client = AsyncIOMotorClient(mongodb_url)
+        client = OpenAI(api_key=openai_api_key)
+        db = DBConnection.client['code_sync']
+        cursor = db[collection_name].find()
+
+        result = []
+        final_arr = []
+
+        querydb = DBConnection.client['langchain_db']['solidity_query']
+        # find the query in the database
+        query = {
+            "project_name": collection_name,
+        }
+        res = await querydb.find_one(query)
+        thread_id = res.get("thread_id")
+        if thread_id is not None:
+            print(thread_id)
+        else:
+            print("No thread_id found in the document.")
+
+        async for document in cursor:
+            print(document) 
+
+            # if thread_id is None:
+                # First create an empty thread
+            empty_thread = client.beta.threads.create()
+            thread_id = empty_thread.id
+           
+           # Add message to the thread
+            client.beta.threads.messages.create(
+                thread_id,
+                role="user",
+                content=f"Find security issues for this {document}",
+            )
+
+            # Run the thread with your assistant id
+            run = client.beta.threads.runs.create(
+                thread_id=thread_id,
+                assistant_id=openai_assistant_id
+            )
+
+            timeout = 600  # seconds
+            start_time = time.time()
+            
+            while True:
+                await asyncio.sleep(1)  # Use asyncio.sleep for async code
+                run = client.beta.threads.runs.retrieve(thread_id=thread_id, run_id=run.id)
+                if run.status == "completed" or time.time() - start_time > timeout:
+                    break
+
+            # Proceed only if run completed successfully
+            if run.status == "completed":
+                messages_page = client.beta.threads.messages.list(thread_id)
+                messages = messages_page.data
+                if messages:
+                    textArr = messages[0].content[0].text.value
+                    # remove ```json from the start and ``` from the end
+                    textArr = textArr.replace("```json", "")
+                    textArr = textArr.replace("```", "") 
+                    result.append(textArr)
+                else:
+                    print("No messages found in the thread.")
+            else:
+                print("The run did not complete successfully.")
+
+        for json_string in result:
+          data_dict = json.loads(json_string)
+          
+          for key, value in data_dict.items():
+              if value:
+                  if key not in final_arr:
+                      final_arr.append(key)
+
+
+        # search for all the values in the final_arr in openai and get the response of where the issue is in the code.
+
+        thread_id = res.get("thread_id")
+        if thread_id is not None:
+            print(thread_id)
+        else:
+            print("No thread_id found in the document.")
+
+        # add msg to the thread
+        msg = "What is this issue in the code also tell where is SWC issue is found? \n"
+        client.beta.threads.messages.create(
+            thread_id,
+            role="user",
+            content=msg,
+        )
+
+        # Run the thread with your assistant id
+        run = client.beta.threads.runs.create(
+            thread_id=thread_id,
+            assistant_id=openai_assistant_id
+        )
+
+        final_do = []
+        timeout = 600  # seconds
+        start_time = time.time()
+
+        while True:
+            await asyncio.sleep(1)
+            run = client.beta.threads.runs.retrieve(thread_id=thread_id, run_id=run.id)
+            if run.status == "completed" or time.time() - start_time > timeout:
+                break
+            
+        # Proceed only if run completed successfully
+        if run.status == "completed":
+            messages_page = client.beta.threads.messages.list(thread_id)
+            messages = messages_page.data
+            if messages:
+                textArr = messages[0].content[0].text.value
+                final_do.append(textArr)
+            else:
+                print("No messages found in the thread.")
+        else:
+            print("The run did not complete successfully.")
+
+
+        print(final_do)
+        
+        querydb = DBConnection.client['langchain_db']['solidity_query']
+        # find the query in the database
+        query = {
+            "project_name": collection_name,
+        }
+
+        # find the query in the database
+        query = await querydb.find_one(query)
+
+        # Filter to find the specific document
+        filter_query = {
+            "project_name": collection_name,
+        }
+
+        update_document = {
+            "$set": {
+                "result": final_do,
+                "status": "completed",
+                "thread_id": thread_id
+            }
+        }
+
+        update_result = await querydb.update_one(filter_query, update_document)
+
+        if update_result.matched_count > 0:
+            print(f"Successfully updated document for project '{collection_name}'.")
+            if update_result.modified_count > 0:
+                print("The document was modified.")
+            else:
+                print("The document was not modified (the new data might be the same as the old data).")
+        else:
+            print(f"No document found for project '{collection_name}' with the specified criteria.")
+
+        
+
+
+        

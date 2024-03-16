@@ -18,6 +18,7 @@ from controller.debugger import initialize_thread_debugger, generate_debugger_co
 from controller.optimizer import initialize_thread_optimizer, generate_optimizer_completions
 from controller.testCases import TestCases
 from controller.security import Security
+from controller.sol_audit import Solidity
 from fastapi.middleware.cors import CORSMiddleware
 
 from controller.docs import Documentation
@@ -88,6 +89,14 @@ async def poll_sqs_messages():
                         print("Fetching test cases...")
 
                         await TestCases.get_test_cases(project_name)
+                        sqs.delete_message(
+                            QueueUrl=queue_url,
+                            ReceiptHandle=message['ReceiptHandle']
+                        )
+                    elif message_body.get("task") == "solidity":
+                        print("Fetching test cases...")
+
+                        await Solidity.call_assistant_with_markdown(project_name)
                         sqs.delete_message(
                             QueueUrl=queue_url,
                             ReceiptHandle=message['ReceiptHandle']
@@ -333,6 +342,40 @@ async def fetch_security(collection_name: str):
 @app.get("/security/{collection_name}")
 async def fetch_security(collection_name: str):
     db = DBConnection.client['langchain_db']['security_query']
+
+    doc = await db.find_one({"project_name": collection_name})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    # make the response encodable
+    doc = custom_jsonable_encoder(doc)
+    return doc
+
+@app.post("/audit/{collection_name}")
+async def fetch_solidity(collection_name: str):
+    querydb = DBConnection.client['langchain_db']['solidity_query']
+    # save the query to the database
+    query = {
+        "project_name": collection_name,
+        "status": "pending",
+        "result": None,
+    }
+
+    doc = await querydb.find_one({"project_name": collection_name})
+    if not doc:
+        print("Document does not exist")
+        await querydb.insert_one(query)
+    else:
+        print("Document already exists")
+
+    send_to_sqs("solidity", collection_name, "solidity")
+
+    return {"message": "solidity check is being processed and will be available soon"}
+
+
+@app.get("/audit/{collection_name}")
+async def fetch_solidity(collection_name: str):
+    db = DBConnection.client['langchain_db']['solidity_query']
 
     doc = await db.find_one({"project_name": collection_name})
     if not doc:
