@@ -29,7 +29,8 @@ class QueryItem(BaseModel):
 
 load_dotenv()
 app = FastAPI()
-openai_client = OpenAI()
+openai_api_key = os.getenv("OPENAI_API_KEY")
+openai_client = OpenAI(api_key=openai_api_key)
 
 app.add_middleware(
     CORSMiddleware,
@@ -453,39 +454,58 @@ async def transcribe_audio(file: UploadFile = File(...)):
     # Return the transcription text
     return {"transcription": transcription.text}
 
-@app.post("/chatbot/{collection_name}")
-async def fetch_chatbot(collection_name: str):
-    querydb = DBConnection.client['langchain_db']['chatbot']
+# @app.post("/chatbot/{collection_name}")
+# async def fetch_chatbot(collection_name: str):
+#     querydb = DBConnection.client['langchain_db']['chatbot']
 
-    # check if the document is being processed
-    doc = await querydb.find_one({"project_name": collection_name})
-    if doc:
-        if doc.get("status") == "pending":
-            return {"message": "Chatbot is being processed and will be available soon","status" : False}
-        elif doc.get("status") == "completed":
-            return {"message": "Chatbot is already available" ,"status" : True}
+#     # check if the document is being processed
+#     doc = await querydb.find_one({"project_name": collection_name})
+#     if doc:
+#         if doc.get("status") == "pending":
+#             return {"message": "Chatbot is being processed and will be available soon","status" : False}
+#         elif doc.get("status") == "completed":
+#             return {"message": "Chatbot is already available" ,"status" : True}
 
-    # save the query to the database
-    query = {
-        "project_name": collection_name,
-        "status": "pending",
-        "result": None,
-    }
+#     # save the query to the database
+#     query = {
+#         "project_name": collection_name,
+#         "status": "pending",
+#         "result": None,
+#     }
     
-    doc = await querydb.find_one({"project_name": collection_name})
-    if not doc:
-        print("Document does not exist")
-        await querydb.insert_one(query)
-    else:
-        print("Document already exists")
+#     doc = await querydb.find_one({"project_name": collection_name})
+#     if not doc:
+#         print("Document does not exist")
+#         await querydb.insert_one(query)
+#     else:
+#         print("Document already exists")
 
-    send_to_sqs("fetch_chatbot", collection_name, "fetch_chatbot")
+#     send_to_sqs("fetch_chatbot", collection_name, "fetch_chatbot")
 
-    return {"message": "Chatbot is being processed and will be available soon"}
+#     return {"message": "Chatbot is being processed and will be available soon"}
 
 @app.post("/chatbot/query/{collection_name}")
 async def fetch_chatbot(collection_name: str, query_item: QueryItem = Body(...)):
-    res = await ChatBot.generate_chatbot_completions(collection_name, query_item.question)
+    DBConnection.client = AsyncIOMotorClient(mongodb_url)
+
+    # get the entire code from the database
+    db = DBConnection.client['code_sync']
+    cursor = db[collection_name].find()
+    result = []
+
+    async for document in cursor:
+        print(document)
+        result.append(document)
+
+    for chunk in openai_client.completions.create(
+        model="gpt-3.5-turbo-instruct-0914",
+        prompt="Say this is a test",
+        max_tokens=7,
+        temperature=0,
+        stream=True
+    ):
+        
+    print(chunk)
 
     return {
         "response": res
