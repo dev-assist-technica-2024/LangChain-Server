@@ -2,7 +2,7 @@ from openai import OpenAI
 from dotenv import load_dotenv
 import time
 import os
-from fastapi import HTTPException
+from langchain_community.utilities import StackExchangeAPIWrapper
 
 load_dotenv()
 
@@ -23,10 +23,13 @@ client = OpenAI()
 #                  "{Code}"
 #                  "//Code End"
 #
+#                   {Additional Context}
+#
 #                  "Everything after the Codebase label are the different files with their file path and code. "
 #                  "The files denoting code will have //Code Start and //Code End to denote the code. There "
 #                  "will be configuration files there as well and they wont have the code identifiers so you "
-#                  "will know which ones are the config files."
+#                  "will know which ones are the config files. There might be additional context as well denoted by"
+#                  "{Addition Context}. Use the additional context to inform your results as well""
 #
 #                  "After this, you will be given an error stacktrace or the user query. It will be in the "
 #                  "format:"
@@ -55,12 +58,16 @@ async def initialize_thread_debugger():
 async def generate_debugger_completions(documents, threadID, query):
     prompt = ""
     codePrompt = "Codebase:\n%s\n//Code Start\n%s\n//Code End\n "
+    search_results = "%s"
     userQuery = "\nUser Query\n%s\n"
 
     for document in documents:
         prompt = prompt + codePrompt % (document['name'], document['content'])
-    
-    prompt + userQuery % query
+
+    stackexchange = StackExchangeAPIWrapper()
+    stackResults = stackexchange.run("userQuery" % query)
+
+    prompt = prompt + search_results % stackResults + userQuery % query
 
     message = client.beta.threads.messages.create(
         thread_id=threadID,
