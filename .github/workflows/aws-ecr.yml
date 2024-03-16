@@ -33,6 +33,7 @@ jobs:
           echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" >> .env
           echo "OPENAI_SEC_ASSISTANT_ID=${{ secrets.OPENAI_SEC_ASSISTANT_ID }}" >> .env
           echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" >> .env
+          echo "OPENAI_CHATBOT_ASSISTANT_ID=${{ secrets.OPENAI_CHATBOT_ASSISTANT_ID }}" >> .env
       - name: Build, Tag, and Push the Image to Amazon ECR
         id: build-image
         env:
